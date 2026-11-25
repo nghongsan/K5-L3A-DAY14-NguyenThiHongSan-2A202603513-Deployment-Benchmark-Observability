@@ -54,6 +54,6 @@ Danh sách biến thật đang đặt trên Railway (secret đã che): [screensh
 
 ## Screenshots
 - [Deployment dashboard](screenshots/dashboard.png): ảnh chụp thật dashboard Railway (service `agent` và `Redis` đều Online)
-- [Biến môi trường trên Railway](screenshots/railway-variables.png): ảnh dựng từ `railway variables --json` (không phải ảnh chụp giao diện), giá trị secret đã che
+- [Biến môi trường trên Railway](screenshots/railway-variables.png): ảnh chụp thật giao diện Railway (tab Variables của service `agent`, 6 service variables), giá trị secret đã che
 - [Service running](screenshots/running.png): trình duyệt mở `/health` của URL public
-- [Test results](screenshots/test.png): ảnh render từ output thật của 4 lệnh ở trên (không phải ảnh chụp cửa sổ terminal; nếu cần ảnh terminal thật thì chạy lại 4 lệnh ở trên và chụp màn hình)
+- [Test results](screenshots/test.png): ảnh chụp màn hình terminal thật khi chạy 4 lệnh ở trên trên URL public, kết quả `200 / 200 / 401 / 200`
