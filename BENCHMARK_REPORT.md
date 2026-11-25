@@ -78,7 +78,7 @@ Lưu ý khi đọc cột cuối: latency p95 của lần eval cuối là 1537,4 
 
 - `run_eval.py --url http://localhost:8001 --baseline reports/eval_v2.json` (v1 so với baseline v2) → **exit code 1**, `Câu bị regression: 20`, gate FAIL. Chính exit code này chặn merge trong CI.
 - v2 đã sửa với `--min-accuracy 0.85` → **exit code 0**.
-- Job CI: [.github/workflows/eval.yml](.github/workflows/eval.yml) khởi động agent v2, chạy `run_eval.py --min-accuracy 0.85`. Bước nào trả exit code khác 0 thì job fail; bật "Require status checks to pass" cho check `quality-gate` trong branch protection thì PR không merge được. Workflow tắt `MOCK_ERROR_RATE` và `MOCK_SLOW_RATE` để eval không bị nhiễu ngẫu nhiên. (Tôi chưa chạy workflow này trên GitHub Actions, chỉ chạy các lệnh tương đương ở local.)
+- Job CI: [.github/workflows/eval.yml](.github/workflows/eval.yml) khởi động agent v2, chạy `run_eval.py --min-accuracy 0.85`. Bước nào trả exit code khác 0 thì job fail; bật "Require status checks to pass" cho check `quality-gate` trong branch protection thì PR không merge được. Workflow tắt `MOCK_ERROR_RATE` và `MOCK_SLOW_RATE` để eval không bị nhiễu ngẫu nhiên. Đã chạy thử bằng `workflow_dispatch` trên GitHub Actions ngày 2026-11-25: job hoàn thành `success` sau 29 giây, log ghi `Accuracy : 100.0% (23/23)` và `Quality gate (accuracy ≥ 85%, không regression): ✅ PASS` ([run 45584057094](https://github.com/nghongsan/K5-L3A-DAY14-NguyenThiHongSan-2A202603513-Deployment-Benchmark-Observability/actions/runs/45584057094)). Tôi chưa thử nhánh job bị đỏ trên GitHub; nhánh fail chỉ kiểm tra ở local (v1 so với baseline v2 trả exit code 1).
 
 ---
 
