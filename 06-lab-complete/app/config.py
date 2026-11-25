@@ -31,6 +31,8 @@ class Settings:
     rate_limit_per_minute: int = _int("RATE_LIMIT_PER_MINUTE", 10)
     daily_budget_usd: float = _float("DAILY_BUDGET_USD", 1.0)
     monthly_budget_usd: float = _float("MONTHLY_BUDGET_USD", 10.0)
+    user_monthly_budget_usd: float = _float("USER_MONTHLY_BUDGET_USD", 10.0)
+    history_max_messages: int = _int("HISTORY_MAX_MESSAGES", 20)
     log_level: str = os.getenv("LOG_LEVEL", "INFO").upper()
 
 

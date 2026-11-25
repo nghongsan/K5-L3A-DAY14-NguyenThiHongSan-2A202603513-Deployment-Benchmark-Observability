@@ -30,6 +30,13 @@ curl -X POST "$BASE/ask" \
 # {"question":"What is deployment?","answer":"Deployment là quá trình đưa code từ máy bạn lên server để người khác dùng được."}
 ```
 
+Ví dụ đọc lại lịch sử hội thoại (lưu trong Redis):
+
+```bash
+curl "$BASE/history/test" -H "X-API-Key: $AGENT_API_KEY"
+# {"user_id":"test","count":2,"messages":[{"role":"user",...},{"role":"assistant",...}]}
+```
+
 ## Environment Variables Set (chỉ tên, không ghi giá trị)
 
 | Biến | Đặt ở đâu |
@@ -41,8 +48,12 @@ curl -X POST "$BASE/ask" \
 | `DAILY_BUDGET_USD` | `1.0` |
 | `LOG_LEVEL` | `INFO` |
 | `PORT` | Railway tự cấp, Dockerfile đọc `${PORT:-8000}` |
+| `USER_MONTHLY_BUDGET_USD`, `MONTHLY_BUDGET_USD`, `HISTORY_MAX_MESSAGES` | Không đặt trên platform, dùng giá trị mặc định trong code (10.0, 10.0, 20) |
+
+Danh sách biến thật đang đặt trên Railway (secret đã che): [screenshots/railway-variables.png](screenshots/railway-variables.png).
 
 ## Screenshots
-- [Deployment dashboard](screenshots/dashboard.png)
+- [Deployment dashboard](screenshots/dashboard.png): ảnh chụp thật dashboard Railway (service `agent` và `Redis` đều Online)
+- [Biến môi trường trên Railway](screenshots/railway-variables.png): ảnh dựng từ `railway variables --json` (không phải ảnh chụp giao diện), giá trị secret đã che
 - [Service running](screenshots/running.png): trình duyệt mở `/health` của URL public
-- [Test results](screenshots/test.png): ảnh render từ output thật của 4 lệnh ở trên (không phải ảnh chụp cửa sổ terminal)
+- [Test results](screenshots/test.png): ảnh render từ output thật của 4 lệnh ở trên (không phải ảnh chụp cửa sổ terminal; nếu cần ảnh terminal thật thì chạy lại 4 lệnh ở trên và chụp màn hình)

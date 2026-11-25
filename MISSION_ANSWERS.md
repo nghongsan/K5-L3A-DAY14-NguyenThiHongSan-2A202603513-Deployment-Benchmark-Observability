@@ -52,7 +52,7 @@ Kết quả chạy bản production: `POST /ask` trả 200 kèm `"model":"gpt-4o
 
 ### Exercise 2.1: Dockerfile questions (`02-docker/develop/Dockerfile`)
 
-1. **Base image:** `python:3.11` (bản đầy đủ, rất nặng vì chứa cả compiler và công cụ build).
+1. **Base image:** `python:3.11` (bản đầy đủ gồm OS + Python runtime, rất nặng vì chứa cả compiler và công cụ build). Đây là đúng nội dung `02-docker/develop/Dockerfile`; chính vì nặng nên bản production ở Exercise 2.3 đổi sang `python:3.11-slim` (chỉ OS tối thiểu + Python runtime).
 2. **Working directory:** `/app` (`WORKDIR /app`).
 3. **Vì sao `COPY requirements.txt` trước:** mỗi lệnh Dockerfile là một layer được cache. Dependencies ít thay đổi còn code thì đổi liên tục; nếu copy requirements và `pip install` trước, khi chỉ sửa code Docker dùng lại layer đã cache, không cài lại thư viện. Nếu `COPY . .` đứng trước thì mỗi lần sửa một dòng code là phải cài lại toàn bộ.
 4. **CMD vs ENTRYPOINT:** `CMD` là lệnh mặc định, có thể bị ghi đè dễ dàng khi `docker run image <lệnh khác>`. `ENTRYPOINT` là chương trình cố định của container; tham số truyền vào `docker run` được nối thêm vào sau nó (muốn thay phải dùng `--entrypoint`). Thường dùng `ENTRYPOINT` cho chương trình chính và `CMD` cho tham số mặc định.
@@ -226,30 +226,43 @@ Hạn chế của bản này: state nằm trong RAM của từng process nên ch
 
 ### Exercise 4.4: Cost guard implementation (`06-lab-complete/app/cost_guard.py`)
 
-Cách làm:
+Đề gợi ý `check_budget(user_id, estimated_cost)` với budget 10 USD/tháng cho **mỗi user**, theo dõi trong Redis, reset đầu tháng. Cách làm của tôi:
 
-- Chi phí mỗi request = `input_tokens/1000 × 0.00015 + output_tokens/1000 × 0.0006` (giá tham khảo gpt-4o-mini). Mock LLM không trả số token thật nên tôi ước lượng ~1,3 token/từ.
-- Lưu tổng chi phí trong **Redis**, không lưu trong RAM, để mọi worker/instance dùng chung số liệu và không mất khi restart: hai key `cost:day:YYYY-MM-DD` và `cost:month:YYYY-MM`, cộng dồn bằng `INCRBYFLOAT` trong một pipeline, kèm `EXPIRE` (2 ngày và 35 ngày) để key cũ tự dọn. Reset đầu ngày/tháng diễn ra tự nhiên vì tên key chứa ngày/tháng.
-- `check_budget()` chạy **trước** khi gọi LLM: nếu tổng ngày ≥ `DAILY_BUDGET_USD` hoặc tổng tháng ≥ `MONTHLY_BUDGET_USD` thì trả **402**. `record_cost()` chạy **sau** khi gọi LLM.
-- Nếu Redis lỗi, `check_budget` trả 503 (fail closed) thay vì cho qua, vì cost guard là lớp bảo vệ tiền.
-- Hạn chế: budget tính toàn hệ thống, không theo từng user (đề Exercise 4.4 gợi ý theo user `budget:{user_id}:{month}`). Muốn theo user chỉ cần thêm `user_id` vào tên key.
-- Cũng vì kiểm tra trước, ghi sau nên request cuối cùng có thể làm tổng vượt budget một chút (không chặn "đoán trước" chi phí).
+```python
+def check_budget(user_id=None) -> None:      # gọi TRƯỚC khi gọi LLM
+    day, month, user = _keys(user_id)         # cost:day:..., cost:month:..., cost:user:<hash>:YYYY-MM
+    day_spent, month_spent, user_spent = r.mget(day, month, user or day)
+    if day_spent   >= DAILY_BUDGET_USD:        raise HTTPException(402, "Daily budget exhausted")
+    if month_spent >= MONTHLY_BUDGET_USD:      raise HTTPException(402, "Monthly budget exhausted")
+    if user and user_spent >= USER_MONTHLY_BUDGET_USD:
+                                               raise HTTPException(402, "User monthly budget exhausted")
 
-Kiểm chứng bằng Redis thật, `DAILY_BUDGET_USD=0.00004` (mỗi request ≈ 0,0000125 USD):
-
-```text
-1: HTTP/1.1 200 OK
-2: HTTP/1.1 200 OK
-3: HTTP/1.1 200 OK
-4: HTTP/1.1 200 OK
-5: HTTP/1.1 402 Payment Required  {"detail":"Daily budget exhausted"}
-6: HTTP/1.1 402 Payment Required  {"detail":"Daily budget exhausted"}
-
-cost:day:2026-11-25   = 0.0000498 (TTL 172800s)
-cost:month:2026-11    = 0.0000498 (TTL 3024000s)
+def record_cost(input_tokens, output_tokens, user_id=None) -> float:   # gọi SAU khi gọi LLM
+    cost = in/1000 * 0.00015 + out/1000 * 0.0006
+    pipe.incrbyfloat(day, cost); pipe.incrbyfloat(month, cost); pipe.incrbyfloat(user, cost)  # + EXPIRE
 ```
 
-Khác biệt giữa hai lớp: rate limit bảo vệ **tốc độ** (chặn bot/spam, trả 429), cost guard bảo vệ **tiền** (kể cả người dùng hợp lệ gọi đều đặn vẫn bị chặn khi hết ngân sách, trả 402). Cần cả hai: gọi chậm mà đều vẫn có thể đốt hết ngân sách, còn gọi nhanh nhưng rẻ thì chỉ cần rate limit.
+- Chi phí mỗi request = `input_tokens/1000 × 0.00015 + output_tokens/1000 × 0.0006` (giá tham khảo gpt-4o-mini). Mock LLM không trả số token thật nên tôi ước lượng ~1,3 token/từ.
+- **Ba tầng budget, đều lưu trong Redis** (không trong RAM) để mọi worker/instance dùng chung và không mất khi restart: theo ngày toàn hệ thống (`DAILY_BUDGET_USD`), theo tháng toàn hệ thống (`MONTHLY_BUDGET_USD`), và **theo từng user theo tháng** (`USER_MONTHLY_BUDGET_USD`, mặc định 10 USD đúng như đề). Cộng dồn bằng `INCRBYFLOAT` trong một pipeline, kèm `EXPIRE` (2 ngày, 35 ngày) để key cũ tự dọn. Reset đầu ngày/tháng diễn ra tự nhiên vì tên key chứa ngày/tháng.
+- User lấy từ trường `user_id` trong body; nếu client không gửi thì tính chung theo API key. `user_id` được băm SHA-256 trước khi làm tên key, nên độ dài key cố định và client không chèn được ký tự lạ vào tên key Redis.
+- Tầng theo-user đảm bảo một user đốt hết phần của mình không làm chết các user khác; tầng toàn hệ thống đảm bảo tổng chi phí không vượt ngân sách dù có nhiều user.
+- Nếu Redis lỗi, `check_budget` trả 503 (fail closed) thay vì cho qua, vì cost guard là lớp bảo vệ tiền.
+- Khác đề ở một điểm: đề kiểm tra `current + estimated_cost > 10` rồi cộng luôn; tôi kiểm tra **số đã tiêu** trước khi gọi LLM và ghi chi phí **thực** sau khi gọi (vì chỉ biết số token của câu trả lời sau khi có câu trả lời). Hệ quả: request cuối cùng có thể làm tổng vượt budget một chút.
+- Hạn chế còn lại: `user_id` do client tự khai, nên một client có thể đổi `user_id` để né budget theo-user (budget toàn hệ thống vẫn chặn được tổng). Ở production thật phải lấy user từ danh tính đã xác thực (JWT `sub`) thay vì từ body.
+
+Kiểm chứng bằng Redis thật, 2 worker, `USER_MONTHLY_BUDGET_USD=0.00003` (mỗi request ≈ 0,0000125 USD), `DAILY/MONTHLY_BUDGET_USD=1000`:
+
+```text
+alice gọi 5 lần:  200 200 200 402 402
+bob (user khác):  200 200              <- không bị ảnh hưởng
+
+cost:user:81b637d8fcd2c6da:2026-11 = 0.0000237     (bob)
+cost:user:2bd806c97f0e00af:2026-11 = 0.00003735    (alice, vượt 0.00003 ở request thứ 3 nên request thứ 4 bị chặn)
+```
+
+Kiểm chứng tầng toàn hệ thống, `DAILY_BUDGET_USD=0.00004`: 4 request đầu 200, request thứ 5 và 6 trả `402 {"detail":"Daily budget exhausted"}`; key `cost:day:2026-11-25` và `cost:month:2026-11` đều có TTL (172800 s và 3024000 s).
+
+Khác biệt giữa hai lớp bảo vệ: rate limit bảo vệ **tốc độ** (chặn bot/spam, trả 429), cost guard bảo vệ **tiền** (kể cả người dùng hợp lệ gọi đều đặn vẫn bị chặn khi hết ngân sách, trả 402). Cần cả hai: gọi chậm mà đều vẫn có thể đốt hết ngân sách, còn gọi nhanh nhưng rẻ thì chỉ cần rate limit.
 
 ## Part 5: Scaling & Reliability
 
@@ -286,7 +299,49 @@ Request đang chạy vẫn trả 200 sau khi process nhận SIGTERM, rồi mới
 
 ### Exercise 5.3: Stateless design
 
-Bản `05-scaling-reliability/production/app.py` lưu session và history trong Redis (`setex(f"session:{id}", ...)`), không giữ trong biến toàn cục. Lý do: khi scale ra nhiều instance mỗi instance có RAM riêng; nếu history nằm trong RAM thì request thứ hai rơi vào instance khác sẽ không thấy hội thoại. Redis là nơi chung nên instance nào cũng đọc được.
+Đề yêu cầu refactor đoạn code lưu hội thoại trong RAM thành lưu trong Redis. Tôi làm việc này trong agent Part 6 bằng module mới `06-lab-complete/app/history.py`.
+
+**Trước (anti-pattern):** state nằm trong biến toàn cục của process.
+
+```python
+conversation_history = {}                      # RAM của TỪNG worker / instance
+
+@app.post("/ask")
+def ask(user_id: str, question: str):
+    history = conversation_history.get(user_id, [])
+    ...
+    conversation_history[user_id] = history + [...]
+```
+
+Hỏng khi chạy `uvicorn --workers 2` hoặc nhiều instance: request thứ hai rơi vào worker khác thì không thấy hội thoại; restart là mất hết.
+
+**Sau (stateless):** mỗi user có một Redis list `history:<hash(user_id)>`.
+
+```python
+def append_turn(user_id, question, answer):
+    pipe.rpush(key, json.dumps({"role": "user", "content": question}))
+    pipe.rpush(key, json.dumps({"role": "assistant", "content": answer}))
+    pipe.ltrim(key, -HISTORY_MAX_MESSAGES, -1)   # chỉ giữ N tin nhắn gần nhất
+    pipe.expire(key, 7 * 24 * 3600)              # tự dọn sau 7 ngày
+
+def get_history(user_id):
+    return [json.loads(m) for m in r.lrange(key, 0, -1)]
+```
+
+`/ask` gọi `append_turn` khi có `user_id`, và có thêm `GET /history/{user_id}` (cần `X-API-Key`) để đọc lại. Đây là tính năng phụ: nếu Redis lỗi thì bỏ qua, không làm hỏng `/ask` (khác rate limiter và cost guard, vốn là lớp bảo vệ nên fail closed).
+
+Kiểm chứng (Redis thật, `uvicorn --workers 2`, user `alice` gọi `/ask` 3 lần thành công):
+
+```text
+history trước restart:       count 6 | tin đầu: {'role': 'user', 'content': 'What is deployment?'}
+(kill agent, khởi động lại)
+history SAU khi restart:     count 6
+GET /history/alice không key: 401
+```
+
+Trên Railway (URL public, user tạm `demo-<timestamp>`, 2 lần `/ask`): `GET /history/<user>` trả `count 4`, vai trò `['user','assistant','user','assistant']`.
+
+Ngoài ra bản `05-scaling-reliability/production/app.py` có sẵn cùng nguyên tắc (`setex(f"session:{id}", ...)`), và Exercise 5.4/5.5 bên dưới chứng minh nó chạy được trên 3 instance. Lý do chung: khi scale ra nhiều instance mỗi instance có RAM riêng, còn Redis là nơi chung mà instance nào cũng đọc được.
 
 ### Exercise 5.4: Load balancing (3 instance sau Nginx)
 
@@ -350,7 +405,8 @@ Các quyết định thiết kế chính trong `06-lab-complete/app/`:
 - `config.py`: đọc mọi cấu hình từ biến môi trường; `AGENT_API_KEY` mặc định rỗng và khi rỗng thì **từ chối mọi request** (an toàn khi quên cấu hình).
 - `auth.py`: `secrets.compare_digest` để so sánh key hằng thời gian; thiếu hoặc sai key đều trả 401.
 - `rate_limiter.py`: sliding window bằng Redis sorted set, kiểm tra và ghi trong **một Lua script** nên atomic giữa 2 worker; key Redis dùng hash SHA-256 của API key thay vì key thật; 429 kèm `Retry-After`.
-- `cost_guard.py`: xem Exercise 4.4.
+- `cost_guard.py`: budget theo ngày, theo tháng và theo từng user (xem Exercise 4.4).
+- `history.py`: lịch sử hội thoại trong Redis, `GET /history/{user_id}` (xem Exercise 5.3).
 - `redis_client.py`: `redis.from_url()` không kết nối ngay nên app vẫn khởi động được khi chưa có Redis; timeout 1 giây để `/ready` không treo.
 - `main.py`: log JSON mỗi dòng (middleware ghi `method`, `path`, `status`, `ms`); handler lỗi trả JSON rõ ràng (422 liệt kê trường lỗi, 500 chỉ trả "Internal server error", stack trace chỉ nằm trong log nội bộ); lifespan đặt cờ `shutting_down` và đóng Redis.
 - Nếu Redis lỗi trong lúc xử lý `/ask`, rate limiter và cost guard trả 503 (fail closed) thay vì bỏ qua giới hạn.
@@ -365,7 +421,8 @@ Các quyết định thiết kế chính trong `06-lab-complete/app/`:
 | 1 | Đọc repo và hỏi cần chuẩn bị gì trước khi làm lab | Danh sách điều kiện (Python 3.11+, Docker, Railway CLI, tài khoản cloud) và lộ trình theo CP0–CP8 | Chạy `python --version`, `docker compose version`, `railway whoami` để kiểm tra từng điều kiện trên máy |
 | 2 | Viết các TODO của Part 6 (`config.py`, `auth.py`, `redis_client.py`, `rate_limiter.py`, `cost_guard.py`, `main.py`, Dockerfile, compose, `.dockerignore`, `.env.example`, `railway.toml`, `render.yaml`) | Bản cài đặt đầy đủ như mô tả ở mục Part 6 | Chạy `check_production_ready.py --static-only` (28/28 check tĩnh), rồi bản đầy đủ với Docker: `PASS 12/12`. Tự thử thêm cost guard với Redis thật (402 ở request thứ 5) |
 | 3 | Chạy Part 1, 2, 4, 5 và ghi kết quả | Các lệnh chạy và output ở trên | Số đo (MB, HTTP code, `served_by`) là output thật của lệnh, không chép từ README. Tôi chỉ che token JWT |
-| 4 | Chạy Part 7: load test, eval, sửa `KNOWLEDGE_BASE`, stack Docker | Xem `BENCHMARK_REPORT.md` | Số trong report khớp file JSON/CSV trong `reports/` và `benchmark-results/`. Phát hiện và sửa lỗi Dockerfile của Part 7 (xem mục Lỗi gặp phải trong BENCHMARK_REPORT) |
+| 4 | Sau khi tự chấm, sửa các điểm yếu: cost guard theo từng user (Exercise 4.4), lịch sử hội thoại trong Redis (Exercise 5.3), bổ sung câu trả lời Exercise 2.1 | `app/cost_guard.py` mới, `app/history.py`, endpoint `/history/{user_id}` | Lần đầu code lỗi 500 do thiếu `import hashlib`, tôi đọc log để tìm ra rồi sửa. Test lại bằng Redis thật (alice 402, bob vẫn 200; history còn nguyên sau restart), chạy lại script chấm: vẫn `PASS 12/12`, redeploy Railway rồi gọi `/history` trên URL public |
+| 5 | Chạy Part 7: load test, eval, sửa `KNOWLEDGE_BASE`, stack Docker | Xem `BENCHMARK_REPORT.md` | Số trong report khớp file JSON/CSV trong `reports/` và `benchmark-results/`. Phát hiện và sửa lỗi Dockerfile của Part 7 (xem mục Lỗi gặp phải trong BENCHMARK_REPORT) |
 
 ## Lưu ý về Docker Hub
 

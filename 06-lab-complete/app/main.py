@@ -18,6 +18,7 @@ from app import redis_client
 from app.auth import verify_api_key
 from app.config import settings
 from app.cost_guard import check_budget, record_cost
+from app.history import append_turn, get_history
 from app.rate_limiter import check_rate_limit
 from utils.mock_llm import ask as llm_ask
 
@@ -125,8 +126,19 @@ def _tokens(text: str) -> int:
 @app.post("/ask")
 def ask(body: AskRequest, api_key: str = Depends(verify_api_key)):
     check_rate_limit(api_key)
-    check_budget()
+    # Budget theo user: dùng user_id client gửi, nếu không có thì tính chung theo API key
+    budget_id = body.user_id or "key:" + api_key
+    check_budget(budget_id)
     answer = llm_ask(body.question)
-    cost = record_cost(_tokens(body.question), _tokens(answer))
+    cost = record_cost(_tokens(body.question), _tokens(answer), budget_id)
+    if body.user_id:
+        append_turn(body.user_id, body.question, answer)
     logger.info("ask", extra={"fields": {"user_id": body.user_id, "cost_usd": round(cost, 8)}})
     return {"question": body.question, "answer": answer}
+
+
+@app.get("/history/{user_id}")
+def history(user_id: str, api_key: str = Depends(verify_api_key)):
+    """Lịch sử hội thoại của user (lưu trong Redis, không nằm trong RAM của instance)."""
+    messages = get_history(user_id)
+    return {"user_id": user_id, "count": len(messages), "messages": messages}
