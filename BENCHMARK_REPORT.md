@@ -59,9 +59,9 @@ Nguồn: `reports/eval_v1.json`, `eval_v2.json`, `eval_v2_fixed.json`. Golden da
 | Cost / câu đúng (USD) | 0,00039855 | 0,00003619 | 0,00003436 |
 | Quality gate | FAIL (accuracy < 80%) | PASS | PASS (`--min-accuracy 1.0`, 0 regression) |
 
-**Những câu v2 trả lời sai ban đầu và cách bạn sửa:**
+**Những câu v2 trả lời sai ban đầu và cách tôi sửa:**
 
-| ID | Keyword bị thiếu | Bạn đã sửa gì |
+| ID | Keyword bị thiếu | Tôi đã sửa gì |
 |---|---|---|
 | `security-02` ("JWT khác gì API key trong xác thực?") | `token`, `hết hạn`, `chữ ký` | Thêm entry vào `KNOWLEDGE_BASE` (`develop/utils/mock_llm.py`) kích hoạt bởi `jwt`, nội dung nói rõ API key là chuỗi cố định không hết hạn còn JWT là token có chữ ký số, chứa thời điểm hết hạn |
 | `scaling-03` ("Kubernetes HPA scale dựa trên những chỉ số nào?") | `cpu`, `memory`, `custom metrics` | Thêm entry kích hoạt bởi `hpa`, `kubernetes`, `autoscal`, nội dung liệt kê CPU, memory, custom metrics |
@@ -125,7 +125,7 @@ Ghi chú:
 - Sau lần chạy tải nặng 100 user (mục 5, kết thúc khoảng 15:41), `LLMCostBurnRateHigh` vẫn firing đến 15:45:08 vì cửa sổ 5 phút còn dư tải cũ; tôi chờ nó về inactive rồi mới đo baseline.
 - `promtool test rules prometheus/alert_rules_test.yml` báo `SUCCESS`.
 
-**Thí nghiệm E không làm alert nào firing. Bạn sẽ phát hiện loại sự cố này trong production bằng cách nào?**
+**Thí nghiệm E không làm alert nào firing. Phát hiện loại sự cố này trong production bằng cách nào?**
 
 Các alert hạ tầng chỉ nhìn thấy tốc độ, lỗi HTTP, độ chậm, tình trạng sống; agent v1 vẫn trả 200 nhanh (p95 0,218 s, error 0,6%) nhưng trả lời sai gần hết (accuracy 4,3%). Muốn bắt loại sự cố "chất lượng giảm" cần: (1) **chạy eval trước mỗi lần deploy** với golden dataset và chặn bằng quality gate (đã làm ở mục 3, đúng thí nghiệm này sẽ làm eval FAIL với 20 regression); (2) **metric về chất lượng/hành vi** như retrieval hit ratio (panel này giảm về 0 ngay khi chuyển v1) và đặt alert trên đó; (3) eval/canary định kỳ trên traffic thật (LLM-as-judge hoặc phản hồi 👍/👎 của người dùng) vì chính mock cũng chỉ là mô phỏng.
 
@@ -173,7 +173,7 @@ Nguồn: `benchmark-results/scale_1_stats.csv`, `scale_3_stats.csv`, dòng `/ask
 
 ## 6. Kết luận
 
-- 3 điều bạn học được về benchmark & observability:
+- 3 điều tôi học được về benchmark & observability:
   1. **Trung bình nói dối, percentile mới nói thật.** Thêm 3% request chậm chỉ làm avg tăng 65 ms nhưng p99 tăng 1470 ms (mục 2.2); nên đặt SLO theo p95/p99. Và percentile trên mẫu nhỏ cũng đáng ngờ: p95 eval 23 request nhảy từ 218 lên 1537 ms chỉ vì 2 request chậm.
   2. **Cách đo quyết định kết quả, phải kiểm chứng điều kiện thí nghiệm.** `scale_1` lần đầu thực ra chạy 2 instance vì `docker compose run` âm thầm khởi động dependency; và scale 1 → 3 không cải thiện RPS vì tải vòng kín bị giới hạn bởi think time. Nếu không kiểm tra, tôi đã nộp một kết luận sai.
   3. **Metric hạ tầng không thấy lỗi chất lượng.** Thí nghiệm E (v1: accuracy 4,3%) không alert nào firing; chỉ eval với golden dataset và quality gate bắt được. Cần cả hai: observability để biết hệ thống khỏe, eval để biết câu trả lời đúng.

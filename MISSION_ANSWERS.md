@@ -422,7 +422,7 @@ Các quyết định thiết kế chính trong `06-lab-complete/app/`:
 | 2 | Viết các TODO của Part 6 (`config.py`, `auth.py`, `redis_client.py`, `rate_limiter.py`, `cost_guard.py`, `main.py`, Dockerfile, compose, `.dockerignore`, `.env.example`, `railway.toml`, `render.yaml`) | Bản cài đặt đầy đủ như mô tả ở mục Part 6 | Chạy `check_production_ready.py --static-only` (28/28 check tĩnh), rồi bản đầy đủ với Docker: `PASS 12/12`. Tự thử thêm cost guard với Redis thật (402 ở request thứ 5) |
 | 3 | Chạy Part 1, 2, 4, 5 và ghi kết quả | Các lệnh chạy và output ở trên | Số đo (MB, HTTP code, `served_by`) là output thật của lệnh, không chép từ README. Tôi chỉ che token JWT |
 | 4 | Sau khi tự chấm, sửa các điểm yếu: cost guard theo từng user (Exercise 4.4), lịch sử hội thoại trong Redis (Exercise 5.3), bổ sung câu trả lời Exercise 2.1 | `app/cost_guard.py` mới, `app/history.py`, endpoint `/history/{user_id}` | Lần đầu code lỗi 500 do thiếu `import hashlib`, tôi đọc log để tìm ra rồi sửa. Test lại bằng Redis thật (alice 402, bob vẫn 200; history còn nguyên sau restart), chạy lại script chấm: vẫn `PASS 12/12`, redeploy Railway rồi gọi `/history` trên URL public |
-| 5 | Chạy Part 7: load test, eval, sửa `KNOWLEDGE_BASE`, stack Docker | Xem `BENCHMARK_REPORT.md` | Số trong report khớp file JSON/CSV trong `reports/` và `benchmark-results/`. Phát hiện và sửa lỗi Dockerfile của Part 7 (xem mục Lỗi gặp phải trong BENCHMARK_REPORT) |
+| 5 | Chạy Part 7: load test, eval, sửa `KNOWLEDGE_BASE`, stack Docker | Xem `BENCHMARK_REPORT.md` | Số trong report khớp file JSON/CSV trong `reports/` và `benchmark-results/`. Phát hiện và sửa lỗi Dockerfile của Part 7 (xem hai mục "Lỗi cần ghi lại" trong mục 4.2 của BENCHMARK_REPORT) |
 
 ## Lưu ý về Docker Hub
 
